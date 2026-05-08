@@ -99,7 +99,7 @@ if orders_file and nps_file and customers_file and complaints_file:
     st.plotly_chart(fig_courier, use_container_width=True)
 
     # --- Section C & D: Funnel & Deep Dive ---
-    st.header("Section C & D: The "Pain Points" Funnel")
+    st.header('Section C & D: The "Pain Points" Funnel')
     
     # % Delayed Orders resulting in complaints
     delayed_orders = df_orders[df_orders['sla_breach'] == True]['order_id']
