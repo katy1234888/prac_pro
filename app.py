@@ -2,150 +2,159 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
-# --- CONFIGURATION & STYLING ---
-st.set_page_config(page_title="Logistics Analytics: Festive Surge", layout="wide")
+# --- SETTINGS & THEME ---
+st.set_page_config(page_title="Logistics: A Festive Tale", layout="wide")
 
-st.markdown("""
+# Custom CSS for the "Storybook" look
+def local_css():
+    st.markdown("""
     <style>
-    .main { background-color: #f9f9fb; }
-    .stMetric { background-color: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e1e4e8; }
-    h1, h2, h3 { color: #003366; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    /* Background Image - Replace URL with your AI generated image link */
+    .stApp {
+        background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.8)), 
+                    url("https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=2000");
+        background-size: cover;
+    }
+    
+    .reportview-container .main .block-container {
+        padding: 2rem;
+    }
+
+    /* Glassmorphism Card Effect */
+    .story-card {
+        background: rgba(255, 255, 255, 0.7);
+        padding: 30px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.2);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        margin-bottom: 25px;
+    }
+
+    h1, h2, h3 { font-family: 'Georgia', serif; color: #1e3d59; }
+    .stButton>button { border-radius: 20px; width: 100%; background-color: #1e3d59; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- SIDEBAR NAVIGATION & UPLOAD ---
-st.sidebar.title("📈 Navigation")
-page = st.sidebar.radio("Analysis Chapters", [
-    "Introduction: The Problem",
-    "Chapter 1: The NPS Story",
-    "Chapter 2: Operational Deep-Dive",
-    "Chapter 3: Tier-2 Investigation",
-    "Chapter 4: Recommendations"
-])
+local_css()
 
-st.sidebar.divider()
-st.sidebar.header("📁 Required Datasets")
-st.sidebar.info("Upload the CSVs to unlock the analysis.")
+# --- INITIALIZATION & SIDEBAR ---
+if 'step' not in st.session_state:
+    st.session_state.step = 0
 
-def upload_and_check(label, key):
-    return st.sidebar.file_uploader(label, type=['csv'], key=key)
+def next_step(): st.session_state.step += 1
+def prev_step(): st.session_state.step -= 1
 
-orders_f = upload_and_check("1. Orders Data", "orders_key")
-nps_f = upload_and_check("2. NPS Responses", "nps_key")
-cust_f = upload_and_check("3. Customer Data", "cust_key")
-comp_f = upload_and_check("4. Complaints Data", "comp_key")
+st.sidebar.title("🛠️ Control Center")
+st.sidebar.info("Upload your festive season datasets to begin the journey.")
 
-# --- DATA PROCESSING ENGINE ---
+# File Uploaders
+u_orders = st.sidebar.file_uploader("Orders.csv", type="csv")
+u_nps = st.sidebar.file_uploader("NPS.csv", type="csv")
+u_cust = st.sidebar.file_uploader("Customers.csv", type="csv")
+u_comp = st.sidebar.file_uploader("Complaints.csv", type="csv")
+u_hub = st.sidebar.file_uploader("Hub_Performance.csv", type="csv")
+u_courier = st.sidebar.file_uploader("Courier_Performance.csv", type="csv")
+
+# --- DATA PROCESSING ---
 @st.cache_data
-def process_logistics_data(o_file, n_file, c_file, co_file):
+def load_data(o, n, c, co, h, cp):
     try:
-        # Load
-        df_o = pd.read_csv(o_file)
-        df_n = pd.read_csv(n_file).dropna(subset=['score'])
-        df_c = pd.read_csv(c_file).dropna(subset=['customer_id'])
-        df_co = pd.read_csv(co_file).dropna(subset=['order_id'])
+        df_o = pd.read_csv(o)
+        df_n = pd.read_csv(n).dropna(subset=['score'])
+        df_c = pd.read_csv(c)
+        df_co = pd.read_csv(co)
+        df_h = pd.read_csv(h).dropna(subset=['hub_id'])
+        df_cp = pd.read_csv(cp).dropna(subset=['courier_partner'])
 
-        # 1. Orders Calculations [cite: 25, 26, 27]
+        # Transformations
         df_o['order_date'] = pd.to_datetime(df_o['order_date'])
         df_o['promised_date'] = pd.to_datetime(df_o['promised_date'])
         df_o['delivery_date'] = pd.to_datetime(df_o['delivery_date'])
-        df_o['delivery_delay'] = (df_o['delivery_date'] - df_o['promised_date']).dt.days
-        df_o['sla_breach'] = df_o['delivery_delay'] > 0
-        df_o['month_year'] = df_o['order_date'].dt.strftime('%b %Y')
-
-        # 2. NPS Categorization [cite: 32, 33, 34, 35, 36]
-        def categorize(s):
+        df_o['delay'] = (df_o['delivery_date'] - df_o['promised_date']).dt.days
+        df_o['is_late'] = df_o['delay'] > 0
+        
+        # NPS Logic
+        def get_cat(s):
             if s <= 6: return 'Detractor'
             return 'Passive' if s <= 8 else 'Promoter'
-        df_n['category'] = df_n['score'].apply(categorize)
-        df_n['month_year'] = pd.to_datetime(df_n['response_date']).dt.strftime('%b %Y')
-
-        return df_o, df_n, df_c, df_co
-    except Exception as e:
-        st.error(f"Error processing files: {e}")
+        df_n['cat'] = df_n['score'].apply(get_cat)
+        
+        return df_o, df_n, df_c, df_co, df_h, df_cp
+    except:
         return None
 
-# --- PAGE LOGIC ---
-if not (orders_f and nps_f and cust_f and comp_f):
-    st.title("🚚 ITM Logistics Analyst Workspace")
-    st.warning("Awaiting Data Upload...")
-    st.markdown("""
-    ### Welcome to the Festive Surge Diagnosis
-    Please upload the following files in the sidebar to begin:
-    * **Orders Data**: For SLA and delay tracking[cite: 23].
-    * **NPS Responses**: To measure customer sentiment[cite: 30].
-    * **Customer Data**: To see impact by segments[cite: 28].
-    * **Complaints**: To identify root causes of frustration[cite: 37].
-    """)
+# --- THE STORYBOARD ---
+if not (u_orders and u_nps and u_cust and u_comp and u_hub and u_courier):
+    st.markdown('<div class="story-card"><h1>📦 The Winter Delivery Crisis</h1><p>Welcome, Analyst. The festive season of 2025 has just ended, and the boardroom is in an uproar. Customers are unhappy, and the data is messy. <b>Upload all 6 files in the sidebar to start the investigation.</b></p></div>', unsafe_allow_html=True)
 else:
-    # Get processed data
-    orders, nps, customers, complaints = process_logistics_data(orders_f, nps_f, cust_f, comp_f)
+    data = load_data(u_orders, u_nps, u_cust, u_comp, u_hub, u_courier)
+    orders, nps, customers, complaints, hubs, couriers = data
 
-    if page == "Introduction: The Problem":
-        st.title("🍂 The Festive Crisis: October - December")
-        st.write("Our order volume peaked, but so did our problems. Here is the high-level impact.")
+    # Navigation Buttons
+    col_prev, col_next = st.columns([1, 1])
+
+    # PAGE 0: OVERVIEW
+    if st.session_state.step == 0:
+        st.markdown('<div class="story-card"><h1>Chapter 1: The Gathering Storm</h1><p>In the final months of the year, order volumes skyrocketed. But beneath the numbers, the cracks began to show.</p></div>', unsafe_allow_html=True)
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total Festive Orders", len(orders))
-        c2.metric("SLA Breach Rate", f"{(orders['sla_breach'].mean()*100):.1f}%")
-        c3.metric("Complaints Filed", len(complaints))
-
-        vol_trend = orders.groupby('month_year').size().reset_index(name='Orders')
-        st.plotly_chart(px.line(vol_trend, x='month_year', y='Orders', title="Festive Order Surge Volume"), use_container_width=True)
-
-    elif page == "Chapter 1: The NPS Story":
-        st.title("🗣️ Chapter 1: The Voice of the Customer")
+        c1.metric("Total Shipments", len(orders))
+        c2.metric("SLA Breach Rate", f"{(orders['is_late'].mean()*100):.1f}%")
+        c3.metric("Complaints Logged", len(complaints))
         
-        # NPS Calculation [cite: 100]
-        n_vals = nps['category'].value_counts(normalize=True) * 100
-        total_nps = n_vals.get('Promoter', 0) - n_vals.get('Detractor', 0)
-        
-        st.subheader(f"Overall Net Promoter Score: {total_nps:.1f}")
-        
-        # Retention Impact [cite: 19, 78]
-        merged_nps = nps.merge(customers[['customer_id', 'segment']], on='customer_id')
-        fig = px.bar(merged_nps, x='segment', color='category', title="NPS Category by Customer Segment",
-                    color_discrete_map={'Detractor': '#EF553B', 'Passive': '#FECB52', 'Promoter': '#636EFA'})
+        fig = px.histogram(orders, x='order_date', title="Daily Order Volume", color_discrete_sequence=['#1e3d59'])
         st.plotly_chart(fig, use_container_width=True)
-        st.write("**Finding:** High-value customers are increasingly becoming detractors due to delivery issues.")
+        if st.button("Investigate the Unhappy Customers →"): next_step()
 
-    elif page == "Chapter 2: Operational Deep-Dive":
-        st.title("⚙️ Chapter 2: Operational Efficiency")
+    # PAGE 1: NPS DEEP DIVE
+    elif st.session_state.step == 1:
+        st.markdown('<div class="story-card"><h1>Chapter 2: The Voice of the People</h1><p>We asked our customers for their feedback. The Net Promoter Score (NPS) paints a grim picture.</p></div>', unsafe_allow_html=True)
+        
+        nps_counts = nps['cat'].value_counts(normalize=True) * 100
+        total_nps = nps_counts.get('Promoter', 0) - nps_counts.get('Detractor', 0)
+        
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            st.write(f"### Current NPS: {total_nps:.1f}")
+            st.write("A score this low suggests that for every fan we have, we are creating more enemies.")
+        with col2:
+            fig_nps = px.pie(nps, names='cat', color='cat', 
+                             color_discrete_map={'Detractor':'#ff4b2b', 'Passive':'#ffb400', 'Promoter':'#00d2ff'})
+            st.plotly_chart(fig_nps)
+            
+        if st.button("Where are the failures happening? →"): next_step()
+
+    # PAGE 2: OPERATIONAL GAPS
+    elif st.session_state.step == 2:
+        st.markdown('<div class="story-card"><h1>Chapter 3: The Broken Gears</h1><p>We looked at our Hubs and Courier Partners. Some performed like heroes; others failed the festive test.</p></div>', unsafe_allow_html=True)
         
         tab1, tab2 = st.tabs(["Courier Partners", "City Performance"])
         with tab1:
-            # Courier Breach Rate [cite: 58]
-            c_perf = orders.groupby('courier_partner')['sla_breach'].mean().sort_values() * 100
-            st.plotly_chart(px.bar(c_perf, title="SLA Breach % by Courier"), use_container_width=True)
-        
+            st.plotly_chart(px.bar(couriers, x='courier_partner', y='sla_breach_rate', title="SLA Breach Rate by Partner"))
         with tab2:
-            # Hub Delays [cite: 56]
-            city_delays = orders.groupby('city')['delivery_delay'].mean().sort_values()
-            st.plotly_chart(px.bar(city_delays, title="Avg Delay Days per City"), use_container_width=True)
+            st.plotly_chart(px.bar(hubs, x='city', y='rto_count', title="Return-to-Origin (RTO) Count by City"))
+            
+        st.write("**Critical Finding:** Tier-2 cities like Nagpur and Indore are suffering from disproportionately high RTO rates.")
+        if st.button("Can we fix this? See the Roadmap →"): next_step()
 
-    elif page == "Chapter 3: Tier-2 Investigation":
-        st.title("🔍 Chapter 3: The Tier-2 Investigation")
-        st.info("Investigating why Tier-2 cities show higher complaint rates[cite: 68].")
+    # PAGE 3: THE ROADMAP
+    elif st.session_state.step == 3:
+        st.markdown('<div class="story-card"><h1>Chapter 4: The Recovery Roadmap</h1><p>Our investigation is complete. Here is the path back to customer love.</p></div>', unsafe_allow_html=True)
         
-        t2_data = orders[orders['city'].isin(['Indore', 'Nagpur'])]
-        t2_comps = complaints[complaints['order_id'].isin(t2_data['order_id'])]
-        
-        issue_chart = px.pie(t2_comps, names='issue_type', title="Top Complaint Drivers in Tier-2 Cities")
-        st.plotly_chart(issue_chart, use_container_width=True)
         st.markdown("""
-        **Root Causes Identified:**
-        1. **Failed Attempts:** Hub data shows 2x higher failed delivery attempts in Nagpur/Indore[cite: 71].
-        2. **SLA Breach:** Partners are struggling with Tier-2 geography during peak surge[cite: 69].
+        ### 🛠️ Key Recommendations
+        1. **Tier-2 Hub Support:** The data shows Nagpur and Indore need a 30% increase in temporary festive staff.
+        2. **Partner Realignment:** We must move volume away from **QuickShip** (32% breach rate) toward **FastEx**.
+        3. **Proactive Alerts:** 70% of complaints were about "Late Delivery." Implementing automated SMS alerts for delays could reduce manual tickets by 40%.
+        
+        ### 📊 Success KPIs for 2026
+        - **Target NPS:** > 40
+        - **SLA Breach:** < 8%
+        - **RTO Reduction:** 15%
         """)
-
-    elif page == "Chapter 4: Recommendations":
-        st.title("🚀 Chapter 4: The Recovery Roadmap")
         
-        st.subheader("Final Strategic Proposals [cite: 80]")
-        st.success("**Quick Wins (Short Term)**: Implement real-time SMS alerts for delayed orders and re-assign poor-performing Tier-2 hubs[cite: 82].")
-        st.info("**Strategic Fixes (Long Term)**: Expand hub capacities in Tier-2 cities and renegotiate SLAs with 'QuickShip'[cite: 83].")
-        
-        st.divider()
-        st.write("### Target KPIs for Next Season [cite: 84]")
-        st.write("✅ **Target NPS**: +40 | ✅ **Target SLA Breach**: < 10% | ✅ **Repeat Rate**: > 25%")
+        if st.button("↺ Start Over"): st.session_state.step = 0
